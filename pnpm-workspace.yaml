@@ -1,3 +1,6 @@
-ignoredBuiltDependencies:
-  - sharp
-  - unrs-resolver
+allowBuilds:
+  core-js: false
+  esbuild: true
+  protobufjs: false
+  sharp: true
+  unrs-resolver: true
