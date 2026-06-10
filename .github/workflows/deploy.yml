@@ -1,0 +1,37 @@
+name: Deploy para Vercel (produção)
+
+# Deploy automático cross-conta:
+#  - commit/push ficam no GitHub (conta yahoo, repo leo-olimpio/Research_engine)
+#  - este workflow publica na Vercel (conta gmail) usando um TOKEN, sem precisar
+#    conectar as duas contas via a integração Git da Vercel.
+#
+# Pré-requisito: cadastrar 3 secrets no repositório (Settings -> Secrets and
+# variables -> Actions -> New repository secret):
+#   VERCEL_TOKEN       -> gerado em vercel.com/account/tokens (conta gmail)
+#   VERCEL_ORG_ID      -> team_pfjE0aKKNj6BWRIMLekE0hTA
+#   VERCEL_PROJECT_ID  -> prj_f4JojbRZ4V8Z94y7AhFSW111LKSW
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Puxar config do projeto (Vercel)
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build de produção
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy (prebuilt) em produção
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
