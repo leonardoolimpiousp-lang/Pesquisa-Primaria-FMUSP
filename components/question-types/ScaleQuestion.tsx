@@ -35,7 +35,7 @@ export function ScaleQuestion({
                 type="button"
                 aria-pressed={on}
                 onClick={() => setSelected(p)}
-                className={`flex h-14 flex-1 items-center justify-center rounded-2xl border text-lg font-semibold transition-colors ${
+                className={`flex h-14 flex-1 items-center justify-center rounded-2xl border text-lg font-semibold transition-all active:scale-[0.96] ${
                   on
                     ? "border-primary bg-primary text-primary-foreground"
                     : "border-border bg-muted text-foreground hover:border-primary-300"

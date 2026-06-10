@@ -44,7 +44,7 @@ export function MultiSelect({
                 role="checkbox"
                 aria-checked={isOn}
                 onClick={() => toggle(optValue)}
-                className={`flex min-h-[3rem] items-center gap-2 rounded-full border px-5 py-2.5 text-base font-semibold transition-colors ${
+                className={`flex min-h-[3rem] items-center gap-2 rounded-full border px-5 py-2.5 text-base font-semibold transition-all active:scale-[0.97] ${
                   isOn
                     ? "border-primary bg-primary text-primary-foreground"
                     : "border-border bg-muted text-foreground hover:border-primary-300"
@@ -78,9 +78,9 @@ export function MultiSelect({
               role="checkbox"
               aria-checked={isOn}
               onClick={() => toggle(optValue)}
-              className={`flex min-h-[3.25rem] w-full items-center gap-3 rounded-2xl border px-5 py-4 text-left text-lg font-semibold transition-colors ${
+              className={`flex min-h-[3.25rem] w-full items-center gap-3 rounded-2xl border px-5 py-4 text-left text-lg font-semibold transition-all active:scale-[0.98] ${
                 isOn
-                  ? "border-primary bg-primary-100 text-primary-900"
+                  ? "border-primary bg-primary-100 text-primary-900 shadow-sm"
                   : "border-border bg-muted text-foreground hover:border-primary-300"
               }`}
             >

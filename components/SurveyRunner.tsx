@@ -7,6 +7,8 @@ import { ConsentScreen } from "./ConsentScreen";
 import { QuestionRenderer } from "./QuestionRenderer";
 import { ProgressBar } from "./ProgressBar";
 import { FinalScreen } from "./FinalScreen";
+import { PersistenceProvider } from "./PersistenceProvider";
+import { SaveIndicator } from "./SaveIndicator";
 
 /**
  * Orquestrador da experiência: liga schema -> store -> telas conforme `status`.
@@ -21,6 +23,7 @@ export function SurveyRunner({
   surveyVersionId: string;
 }) {
   const initSurvey = useSurveyStore((s) => s.initSurvey);
+  const reset = useSurveyStore((s) => s.reset);
   const hasHydrated = useSurveyStore((s) => s._hasHydrated);
   const status = useSurveyStore((s) => s.status);
   const current = useSurveyStore((s) => s.getCurrentQuestion());
@@ -28,9 +31,15 @@ export function SurveyRunner({
   const canGoBack = useSurveyStore((s) => s.history.length > 0);
 
   // Inicializa só após a rehidratação do localStorage (retomada de sessão).
+  // `?test=1` (link do admin) começa uma sessão limpa para navegação de teste.
   useEffect(() => {
-    if (hasHydrated) initSurvey({ schema, surveyVersionId });
-  }, [hasHydrated, schema, surveyVersionId, initSurvey]);
+    if (!hasHydrated) return;
+    initSurvey({ schema, surveyVersionId });
+    const isTest =
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("test") === "1";
+    if (isTest) reset();
+  }, [hasHydrated, schema, surveyVersionId, initSurvey, reset]);
 
   if (!hasHydrated) {
     return (
@@ -42,6 +51,7 @@ export function SurveyRunner({
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-5 py-6">
+      <PersistenceProvider />
       {status === "in_progress" && (
         <div className="mb-8 flex items-center gap-3">
           {canGoBack && (
@@ -57,6 +67,12 @@ export function SurveyRunner({
           <div className="flex-1">
             <ProgressBar />
           </div>
+        </div>
+      )}
+
+      {status === "in_progress" && (
+        <div className="mb-3 flex justify-end">
+          <SaveIndicator />
         </div>
       )}
 

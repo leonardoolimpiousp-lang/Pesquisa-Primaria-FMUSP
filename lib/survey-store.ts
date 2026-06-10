@@ -56,6 +56,24 @@ export function configurePersistence(handler: PersistAnswerHandler): void {
   persistAnswerHandler = handler;
 }
 
+/** Payload de finalização (completed_at + anonimato/contato). PII só aqui. */
+export interface FinalizePayload {
+  sessionId: string;
+  surveyVersionId: string;
+  isAnonymous: boolean;
+  email?: string;
+  whatsapp?: string;
+  linkedin?: string;
+}
+
+export type FinalizeHandler = (payload: FinalizePayload) => Promise<void>;
+
+let finalizeHandler: FinalizeHandler = async () => {};
+
+export function configureFinalize(handler: FinalizeHandler): void {
+  finalizeHandler = handler;
+}
+
 /* -------------------------------------------------------------------------- */
 /* tipos de estado                                                            */
 /* -------------------------------------------------------------------------- */
@@ -327,8 +345,26 @@ export const useSurveyStore = create<SurveyState>()(
 
       setContact: (contact) => set({ contact }),
 
-      completeSurvey: () =>
-        set({ status: "completed", completedAt: new Date().toISOString() }),
+      completeSurvey: () => {
+        set({ status: "completed", completedAt: new Date().toISOString() });
+
+        const { sessionId, surveyVersionId, contact } = get();
+        if (sessionId && surveyVersionId) {
+          void finalizeHandler({
+            sessionId,
+            surveyVersionId,
+            isAnonymous: contact.isAnonymous,
+            email: contact.email,
+            whatsapp: contact.whatsapp,
+            linkedin: contact.linkedin,
+          }).catch((err: unknown) => {
+            set({
+              lastError:
+                err instanceof Error ? err.message : "Falha ao finalizar.",
+            });
+          });
+        }
+      },
 
       reset: () => {
         const { schema, surveyVersionId } = get();
