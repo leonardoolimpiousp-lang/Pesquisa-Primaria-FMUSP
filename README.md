@@ -1,236 +1,193 @@
-# Pesquisa Primária — Research Engine (FMUSP)
+# Pesquisa Primária — Research Engine
 
-Plataforma de survey para coleta de dados de entrevistas/questionários da
-**pesquisa primária** de um projeto da **Faculdade de Medicina da USP (FMUSP)**.
-
-Não é um formulário estático: é um **form engine** com ramificação condicional
-por persona, multiselect, autosave/retomada de sessão e backend analítico
-pensado para análise estatística extensa.
-
-- **Volume esperado:** 500–1000 respostas.
-- **Objetivo de dados:** cruzar respostas, segmentar, exportar
-  (CSV/SPSS/R/Python), gerar dashboards/heatmaps e permitir análise
-  longitudinal.
-
-> Guia operacional para devs/agentes: [`CLAUDE.md`](./CLAUDE.md).
-> Sistema visual e componentes: [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md).
+Plataforma de survey para coleta de dados de pesquisa primária desenvolvida para a **FMUSP (Faculdade de Medicina da USP)**. Engine de questionários reutilizável com branching dinâmico por persona, persistência autossave e exportação para análise estatística.
 
 ---
 
-## Personas
+## Visão geral
 
-O participante declara sua persona no início; a árvore de decisão do
-questionário se individualiza a partir disso.
+**É:** um form engine orientado a pesquisa científica — definição de survey separada da renderização, com branching logic centralizado e backend analítico normalizado.
 
-1. **Aluno de graduação**
-2. **Ex-aluno FMUSP recém-formado** (não residente)
-3. **Residente** do HCFMUSP
-4. **Preceptor** do HCFMUSP
-5. **Assistente** do HCFMUSP
+**Não é:** Google Forms customizado nem telas de perguntas hardcoded. As perguntas são renderizadas dinamicamente a partir de um schema JSON.
+
+**Volume esperado:** 500–1000 respostas. Prioriza qualidade de dados, rastreabilidade de versão e exportação científica (CSV/SPSS/R/Python).
 
 ---
 
-## Seções (comuns a todas as personas)
+## Stack
 
-1. **Experiência pessoal na instituição**
-2. **Produção acadêmica** dentro do complexo HCFMUSP
-3. **Empreendedorismo, soft skills e saúde digital**
-4. **Uso de IA** (vida pessoal, acadêmica e assistencial) + familiaridade com
-   *vibecoding*
-5. **Familiaridade com ciência da computação e ciência de dados**
-
-O conteúdo final das perguntas será estruturado em etapa seguinte e versionado
-em `survey_versions.schema_json`.
-
----
-
-## Modelo de branching (árvore de decisão)
-
-- A persona escolhida carrega a árvore específica: `const flow = surveyFlows[persona]`.
-- Perguntas condicionais: responder **"não"** pula o bloco/seção inteiro;
-  **"sim"** segue nas próximas perguntas da mesma seção.
-- **Escolha única:** ao selecionar, **avança automaticamente** para a próxima
-  pergunta.
-- **Multiselect:** seleção múltipla + botão **"Continuar"**.
-
-### Tipos de pergunta
-
-```ts
-type QuestionType =
-  | "single_choice"
-  | "multi_choice"
-  | "text"
-  | "scale"
-  | "yes_no"
-  | "email"
-  | "whatsapp"
-```
-
-### Regras de branching (JSON)
-
-Vão dentro do `schema_json` de cada pergunta:
-
-```json
-{ "if_answer_equals": "sim", "go_to_question": "q_15" }
-```
-
-```json
-{ "if_answer_includes": ["Uso IA diariamente"], "show_questions": ["q_31", "q_32"] }
-```
-
-### Multiselect — formato de armazenamento
-
-**Nunca CSV.** Salve um array JSON em `answers.answer_json`:
-
-```json
-["ChatGPT", "Claude", "Cursor"]
-```
+| Camada | Tecnologia |
+|---|---|
+| Frontend | Next.js 16 (App Router) + TypeScript strict |
+| UI | shadcn/ui + Tailwind CSS v4 |
+| Form state | React Hook Form + Zod |
+| Estado global | Zustand (com `persist`) |
+| Banco | PostgreSQL via Supabase |
+| ORM | Drizzle ORM |
+| Branching | JSON-based flow engine (`lib/branching-engine.ts`) |
+| Analytics | PostHog (comportamento, sem PII) |
+| Deploy | Vercel (CI/CD via GitHub Actions) |
 
 ---
 
 ## Arquitetura
 
-Separação entre **definição** (como o survey é definido) e **resposta** (como os
-dados são armazenados):
+A separação entre **definição** e **resposta** é o princípio central:
 
 ```
-survey_versions.schema_json (jsonb)   ← fonte da verdade do fluxo/branching
-            │
-            ▼
-        API  → Frontend renderiza dinamicamente
-            │
-            ▼
-   responses → answers (relacional normalizado)
+Definition Layer (JSONB)            Response Layer (relacional)
+─────────────────────────           ───────────────────────────
+survey_versions.schema_json   →     responses + answers
+(seções, perguntas, opções,         (uma linha por participante,
+ branching, personas)                uma linha por resposta)
 ```
 
-Por quê híbrido (JSONB + relacional):
+- **Definição = JSONB no banco.** `survey_versions.schema_json` é a fonte da verdade do fluxo. A API entrega o JSON ao frontend, que renderiza dinamicamente.
+- **Respostas = relacional normalizado.** Tabelas `responses` e `answers` para joins, agregações e exportação.
+- **Versionamento obrigatório.** `responses.survey_version_id` aponta para a versão exata que gerou cada dado — requisito de reprodutibilidade científica.
+- **Branching centralizado.** Toda decisão de "próxima pergunta" passa por `getNextQuestion()` em `lib/branching-engine.ts`. Nenhum `if/else` de fluxo nos componentes.
 
-| Necessidade | Resolvido por |
-| --- | --- |
-| branching complexo / render dinâmico | JSON |
-| versionamento e edição sem deploy | JSON |
-| analytics, joins, agregações, export | SQL relacional |
-| performance de consulta | SQL relacional |
+### Schema do banco
 
-**`responses.survey_version_id` é obrigatório** — rastreia qual versão do
-questionário gerou cada resposta (reprodutibilidade científica).
+```
+surveys
+  └── survey_versions  (schema_json: seções + perguntas + branching)
+        └── responses  (uma por participante + session_id anônimo)
+              └── answers  (uma por pergunta respondida)
+personas  ──→  responses  (classificação por perfil)
+```
+
+### Tipos de pergunta suportados
+
+`single_choice` · `multi_choice` · `text` · `scale` · `yes_no` · `email` · `whatsapp` · `insight` · `ranking` · `emotional_slider` · `emotional_grid`
 
 ---
 
-## Schema (DDL conceitual)
-
-> A implementação real vive nas migrations Drizzle (`/db`). Abaixo, o modelo
-> conceitual.
-
-```sql
--- Survey e versões (definição)
-surveys (
-  id, slug, title, active_version_id
-)
-
-survey_versions (
-  id, survey_id, version,
-  schema_json   jsonb,   -- seções, perguntas, opções, branching
-  published     boolean,
-  created_at    timestamptz
-)
-
-personas (
-  id, name              -- graduando, ex-aluno, residente, preceptor, assistente
-)
-
--- Respostas (relacional)
-responses (
-  id,
-  survey_version_id,    -- OBRIGATÓRIO: rastreabilidade da versão
-  persona_id,
-  started_at, completed_at,
-  is_anonymous  boolean,
-  contact_email, whatsapp,
-  metadata_json jsonb
-)
-
-answers (
-  id,
-  response_id,
-  question_id,
-  answer_text,          -- respostas simples / texto livre
-  answer_json   jsonb,  -- multiselect, escalas estruturadas
-  created_at    timestamptz
-)
-```
-
-A definição de **sections / questions / options** vive dentro de `schema_json`.
-Tabelas-espelho relacionais para essas entidades são opcionais e só se forem
-necessárias para analytics específicos.
-
----
-
-## Estrutura de pastas alvo
+## Estrutura de pastas
 
 ```
-/app
-  /survey/[slug]/page.tsx
-/components
+app/
+  survey/[slug]/       # rota pública do survey
+  admin/               # painel de leitura de respostas (senha única)
+components/
   QuestionRenderer.tsx
-  ProgressBar.tsx
-  MultiSelect.tsx
-  SingleChoice.tsx
-  /question-types
-/lib
-  branching-engine.ts      # getNextQuestion()
-  survey-parser.ts         # schema_json → estrutura renderizável
-/db
-  schema.ts                # Drizzle
+  SurveyRunner.tsx
+  ConsentScreen.tsx
+  FinalScreen.tsx
+  question-types/      # um componente por tipo de pergunta
+lib/
+  branching-engine.ts  # getNextQuestion(), computeProgress()
+  survey-parser.ts     # flattenQuestions(), getQuestionMap()
+  survey-store.ts      # Zustand store (estado da sessão)
+  survey-types.ts      # tipos TypeScript do schema JSON
+  surveys/             # definições dos surveys (graduacao.ts, …)
+db/
+  schema.ts            # Drizzle schema (fonte de verdade do banco)
+  migrations/          # SQL gerado pelo Drizzle
+  seed.ts              # seed para desenvolvimento
 ```
 
 ---
 
-## Frontend e sessão
+## Configuração local
 
-- **Estado:** React Hook Form + Zod (tela atual) + Zustand com `persist`
-  (engine global: pergunta atual, respostas acumuladas, branching, progresso,
-  navegação).
-- **Sessão:** ID anônimo no cliente + `localStorage` para retomada; linha
-  `responses` criada no servidor; **autosave a cada resposta**.
-- **UX:** uma pergunta por tela, barra de progresso com sumário e seções
-  navegáveis, avanço automático em escolha única. Mobile-first (navegador in-app
-  do Instagram). Detalhes em [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md).
+### Pré-requisitos
 
-### Tela final
+- Node.js 20+
+- [corepack](https://nodejs.org/api/corepack.html) habilitado (`corepack enable`)
+- Projeto Supabase criado
 
+### Instalação
+
+```bash
+corepack pnpm install
 ```
-Deseja permanecer anônimo?
-( ) Sim   → is_anonymous = true
-( ) Não   → coleta opcional: e-mail · WhatsApp · LinkedIn (opcional)
+
+### Variáveis de ambiente
+
+Copie `.env.example` para `.env` e preencha:
+
+```bash
+cp .env.example .env
+```
+
+| Variável | Descrição |
+|---|---|
+| `DATABASE_URL` | Connection string PostgreSQL do Supabase |
+| `NEXT_PUBLIC_SUPABASE_URL` | URL pública do projeto Supabase |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Chave anon do Supabase |
+| `ADMIN_PASSWORD` | Senha de acesso ao painel `/admin` |
+| `NEXT_PUBLIC_POSTHOG_KEY` | Chave do PostHog (analytics comportamental) |
+
+### Banco de dados
+
+```bash
+# Gerar migrations a partir do schema (offline)
+corepack pnpm db:generate
+
+# Aplicar schema no Supabase (dev)
+corepack pnpm db:push
+
+# Aplicar migrations versionadas
+corepack pnpm db:migrate
+
+# Seed inicial
+corepack pnpm db:seed
+
+# Drizzle Studio (browser GUI)
+corepack pnpm db:studio
 ```
 
 ---
 
-## Analytics e exportação
+## Comandos
 
-- **PostHog:** abandono por pergunta, tempo por seção, funil, completion rate,
-  quais perguntas cansam o usuário. **Sem PII** (ver LGPD).
-- **Exportação científica:** CSV / SPSS / R / Python a partir do Postgres.
-- **Visualização:** dashboards e heatmaps; análise longitudinal por versão.
+```bash
+corepack pnpm dev        # servidor de desenvolvimento (Next + Turbopack)
+corepack pnpm build      # build de produção
+corepack pnpm start      # servir build de produção
+corepack pnpm lint       # ESLint
+```
+
+---
+
+## Decisões de design
+
+### Uma pergunta por tela
+
+Estilo Typeform/Tally — uma pergunta visível por vez. Melhora taxa de conclusão e qualidade das respostas (participante não "pulou adiante").
+
+### Sessão anônima com autossave
+
+ID gerado no cliente + `localStorage`. A linha `responses` é criada no servidor; cada resposta aciona um upsert em `answers`. Se o participante fechar o navegador (incluindo o browser do Instagram), retoma de onde parou.
+
+### Multiselect = JSON array
+
+Respostas multi-escolha salvas como `["a","b","c"]` em `answer_json`. Nunca como string CSV — evita ambiguidade na análise.
+
+### Escolha única auto-avança
+
+Ao selecionar uma opção em `single_choice`, avança automaticamente. `multi_choice` exige botão "Continuar".
 
 ---
 
 ## LGPD
 
-Requisitos mínimos obrigatórios (detalhe em [`CLAUDE.md`](./CLAUDE.md) §6):
+Pesquisa com seres humanos sob LGPD. Requisitos inegociáveis:
 
-- **Consentimento explícito** antes de coletar qualquer resposta.
-- **Política de privacidade** acessível.
-- **Finalidade informada** (pesquisa acadêmica primária da FMUSP).
-- **Anonimização informada** — contato é opcional, coletado só no final.
-- Nenhuma PII em analytics/telemetria.
+1. **Consentimento explícito** antes de qualquer coleta. Tela opt-in no início; sem consentimento, nada é gravado.
+2. **Finalidade informada** — pesquisa acadêmica primária da FMUSP.
+3. **Anonimização informada** — e-mail, WhatsApp e LinkedIn são opcionais, coletados só no final com opt-in explícito (`is_anonymous = false`).
+4. **Zero PII em analytics** — PostHog rastreia comportamento (abandono, tempo, funil), nunca identidade.
 
 ---
 
-## Roadmap
+## Design
 
-1. **Documentação fundadora** — `CLAUDE.md`, `README.md`, `DESIGN_SYSTEM.md` *(atual)*
-2. Schema Drizzle + scaffold Next.js/Supabase
-3. Conteúdo da landing (justificativa/objetivos) + perguntas e branching por persona
-4. Admin panel (edição de surveys sem deploy) + dashboards
+Cor institucional FMUSP: **`#006747`** (Pantone 342 C). Ver `DESIGN_SYSTEM.md` para tokens completos, escala derivada e mapeamento shadcn/Tailwind.
+
+---
+
+## CI/CD
+
+Deploy automático na Vercel via GitHub Actions (`.github/workflows/deploy.yml`). Push na branch `main` dispara o pipeline.
